@@ -1,0 +1,51 @@
+name: Build Jieun v2 atlas
+on:
+  push:
+    paths:
+      - '.v2-input/**'
+      - '.github/workflows/build-jieun-v2.yml'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pillow
+      - name: Decode look rows
+        run: |
+          base64 -d .v2-input/row9.b64 > /tmp/row9.webp
+          base64 -d .v2-input/row10.b64 > /tmp/row10.webp
+      - name: Build v2 spritesheet and manifest
+        run: |
+          python - <<'PY'
+          from PIL import Image
+          import json
+          base=Image.open('spritesheet.webp').convert('RGBA')
+          assert base.size==(1536,1872), base.size
+          r9=Image.open('/tmp/row9.webp').convert('RGBA')
+          r10=Image.open('/tmp/row10.webp').convert('RGBA')
+          assert r9.size==(1536,208), r9.size
+          assert r10.size==(1536,208), r10.size
+          out=Image.new('RGBA',(1536,2288),(0,0,0,0))
+          out.paste(base,(0,0))
+          out.alpha_composite(r9,(0,1872))
+          out.alpha_composite(r10,(0,2080))
+          out.save('spritesheet.webp','WEBP',lossless=True,quality=100,method=6,exact=True)
+          with open('pet.json','r',encoding='utf-8') as f: p=json.load(f)
+          p={'id':p['id'],'displayName':p['displayName'],'description':p['description'],'spriteVersionNumber':2,'spritesheetPath':p['spritesheetPath']}
+          with open('pet.json','w',encoding='utf-8') as f: json.dump(p,f,ensure_ascii=False,indent=2); f.write('\n')
+          chk=Image.open('spritesheet.webp').convert('RGBA')
+          assert chk.size==(1536,2288), chk.size
+          PY
+      - name: Commit v2 output
+        run: |
+          rm -rf .v2-input .github/workflows/build-jieun-v2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add spritesheet.webp pet.json .v2-input .github/workflows/build-jieun-v2.yml
+          git commit -m 'feat: upgrade Jieun pet to v2 look-around atlas'
+          git push
