@@ -1,7 +1,6 @@
 {
   "id": "jieun",
   "displayName": "Jieun",
-  "description": "A stylish IU-inspired Codex desk pet with round glasses and a black-and-white streetwear outfit.",
-  "spriteVersionNumber": 2,
-  "spritesheetPath": "spritesheet.webp"
+  "description": "An IU-inspired Codex desk pet with round glasses and black-and-white streetwear, now with look-around idle and review motions.",
+  "spritesheetPath": "spritesheet.png"
 }
