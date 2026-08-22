@@ -101,6 +101,16 @@ def main() -> None:
 
     # Turn the hard near-white edge into a small antialiased alpha ramp and
     # mathematically remove the light checkerboard contribution from RGB.
+    component_count, component_labels, component_stats, _ = (
+        cv2.connectedComponentsWithStats((alpha > 0).astype(np.uint8), 8)
+    )
+    if component_count <= 1:
+        raise ValueError("no connected foreground after checker extraction")
+    main_component = 1 + int(
+        np.argmax(component_stats[1:, cv2.CC_STAT_AREA])
+    )
+    alpha[component_labels != main_component] = 0
+
     hard_foreground = alpha > 0
     distance = cv2.distanceTransform(
         hard_foreground.astype(np.uint8),
@@ -127,6 +137,37 @@ def main() -> None:
         rgb_float[partial] - (1.0 - normalized_alpha) * background_level
     ) / np.maximum(normalized_alpha, 1e-4)
     rgb_float[partial] = np.clip(recovered, 0, 255)
+
+    # The generated checkerboard is a baked matte, so the last few opaque
+    # pixels can still carry a white halo. Keep the extracted alpha silhouette
+    # but borrow RGB from the nearest genuinely interior subject pixel.
+    interior_distance = cv2.distanceTransform(
+        hard_foreground.astype(np.uint8),
+        cv2.DIST_L2,
+        3,
+    )
+    clean_core = interior_distance >= 6.0
+    silhouette_ring = hard_foreground & (interior_distance < 6.0)
+    if clean_core.any():
+        distance_source = (~clean_core).astype(np.uint8)
+        _, nearest_labels = cv2.distanceTransformWithLabels(
+            distance_source,
+            cv2.DIST_L2,
+            5,
+            labelType=cv2.DIST_LABEL_PIXEL,
+        )
+        core_coords = np.argwhere(clean_core)
+        nearest_coords = core_coords[nearest_labels - 1]
+        nearest_rgb = rgb_float[
+            nearest_coords[:, :, 0],
+            nearest_coords[:, :, 1],
+        ]
+        ring_weight = np.clip((6.0 - interior_distance) / 4.5, 0.0, 1.0)
+        defringed = (
+            nearest_rgb * ring_weight[:, :, None]
+            + rgb_float * (1.0 - ring_weight[:, :, None])
+        )
+        rgb_float[silhouette_ring] = defringed[silhouette_ring]
 
     rgba = np.dstack((rgb_float.astype(np.uint8), soft_alpha.astype(np.uint8)))
     rgba[rgba[:, :, 3] == 0, :3] = 0

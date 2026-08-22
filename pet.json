@@ -1,6 +1,6 @@
 {
   "id": "jieun",
   "displayName": "Jieun",
-  "description": "A crisp high-resolution, tall and long-legged IU-inspired desk pet with nine expressive action states and an optional eye-gaze overlay.",
+  "description": "A crisp IU-inspired desk pet with large readable close-up sprites, nine expressive action states, and an optional full-body head-and-eye cursor-follow overlay.",
   "spritesheetPath": "spritesheet.png"
 }

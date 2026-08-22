@@ -1,0 +1,66 @@
+{
+  "canvasSize": [
+    524,
+    1249
+  ],
+  "sourceCrop": [
+    376,
+    5,
+    900,
+    1254
+  ],
+  "head": {
+    "position": [
+      69,
+      3
+    ],
+    "size": [
+      370,
+      342
+    ],
+    "pivot": [
+      184,
+      240
+    ],
+    "maxTranslation": [
+      10,
+      7
+    ],
+    "maxRotationDegrees": 4.0,
+    "smoothing": 0.1
+  },
+  "eyes": {
+    "maxGaze": [
+      5,
+      3
+    ],
+    "smoothing": 0.24,
+    "layers": {
+      "left": {
+        "position": [
+          154,
+          124
+        ],
+        "size": [
+          13,
+          11
+        ]
+      },
+      "right": {
+        "position": [
+          203,
+          124
+        ],
+        "size": [
+          13,
+          11
+        ]
+      }
+    }
+  },
+  "display": {
+    "defaultHeight": 900,
+    "minimumHeight": 420,
+    "maximumHeight": 1400
+  }
+}

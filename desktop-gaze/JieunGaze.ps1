@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$RigPath,
-    [ValidateRange(360, 900)]
-    [int]$DisplayHeight = 640,
+    [ValidateRange(420, 1400)]
+    [int]$DisplayHeight = 900,
     [ValidateSet('BottomRight', 'BottomLeft', 'TopRight', 'TopLeft')]
     [string]$Anchor = 'BottomRight',
     [ValidateRange(0, 200)]
@@ -15,11 +15,12 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($RigPath)) {
-    $RigPath = Join-Path $PSScriptRoot '..\design-v4\gaze-rig'
+    $RigPath = Join-Path $PSScriptRoot '..\design-v5\head-rig'
 }
 $resolvedRig = (Resolve-Path -LiteralPath $RigPath).Path
-$configPath = Join-Path $resolvedRig 'gaze-rig.json'
-$basePath = Join-Path $resolvedRig 'base.png'
+$configPath = Join-Path $resolvedRig 'head-gaze-rig.json'
+$bodyPath = Join-Path $resolvedRig 'body.png'
+$headPath = Join-Path $resolvedRig 'head-base.png'
 $leftIrisPath = Join-Path $resolvedRig 'left-iris.png'
 $rightIrisPath = Join-Path $resolvedRig 'right-iris.png'
 $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
@@ -38,15 +39,51 @@ function Load-UnlockedBitmap {
     }
 }
 
-$baseBitmap = Load-UnlockedBitmap -Path $basePath
+function Resize-PremultipliedBitmap {
+    param(
+        [Parameter(Mandatory)][System.Drawing.Bitmap]$Bitmap,
+        [Parameter(Mandatory)][int]$Width,
+        [Parameter(Mandatory)][int]$Height
+    )
+    $result = [System.Drawing.Bitmap]::new(
+        $Width,
+        $Height,
+        [System.Drawing.Imaging.PixelFormat]::Format32bppPArgb
+    )
+    $graphics = [System.Drawing.Graphics]::FromImage($result)
+    try {
+        $graphics.Clear([System.Drawing.Color]::Transparent)
+        $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $graphics.DrawImage(
+            $Bitmap,
+            [System.Drawing.Rectangle]::new(0, 0, $Width, $Height)
+        )
+    }
+    finally {
+        $graphics.Dispose()
+    }
+    return $result
+}
+
+$bodyBitmap = Load-UnlockedBitmap -Path $bodyPath
+$headBitmap = Load-UnlockedBitmap -Path $headPath
 $leftIrisBitmap = Load-UnlockedBitmap -Path $leftIrisPath
 $rightIrisBitmap = Load-UnlockedBitmap -Path $rightIrisPath
 
 if (
-    $baseBitmap.Width -ne [int]$config.canvasSize[0] -or
-    $baseBitmap.Height -ne [int]$config.canvasSize[1]
+    $bodyBitmap.Width -ne [int]$config.canvasSize[0] -or
+    $bodyBitmap.Height -ne [int]$config.canvasSize[1]
 ) {
-    throw 'Gaze rig base image does not match gaze-rig.json.'
+    throw 'Head-gaze body image does not match head-gaze-rig.json.'
+}
+if (
+    $headBitmap.Width -ne [int]$config.head.size[0] -or
+    $headBitmap.Height -ne [int]$config.head.size[1]
+) {
+    throw 'Head layer image does not match head-gaze-rig.json.'
 }
 
 if ($SelfTest) {
@@ -54,19 +91,30 @@ if ($SelfTest) {
         [pscustomobject]@{
             Ok = $true
             RigPath = $resolvedRig
-            CanvasWidth = $baseBitmap.Width
-            CanvasHeight = $baseBitmap.Height
+            CanvasWidth = $bodyBitmap.Width
+            CanvasHeight = $bodyBitmap.Height
             DisplayHeight = $DisplayHeight
-            BodyMoves = $false
-            EyesTrackCursor = $true
+            BodyStationary = $true
+            HeadTracksCursor = $true
+            EyesLeadHead = $true
             PerPixelAlpha = $true
+            ClickThrough = $true
             LayeredWindow = $true
-            MaxGaze = @([int]$config.maxGaze[0], [int]$config.maxGaze[1])
+            MaxGaze = @(
+                [int]$config.eyes.maxGaze[0],
+                [int]$config.eyes.maxGaze[1]
+            )
+            MaxHeadTranslation = @(
+                [int]$config.head.maxTranslation[0],
+                [int]$config.head.maxTranslation[1]
+            )
+            MaxHeadRotationDegrees = [double]$config.head.maxRotationDegrees
             StartupPersistence = $false
         } | ConvertTo-Json -Depth 4
     }
     finally {
-        $baseBitmap.Dispose()
+        $bodyBitmap.Dispose()
+        $headBitmap.Dispose()
         $leftIrisBitmap.Dispose()
         $rightIrisBitmap.Dispose()
     }
@@ -76,24 +124,25 @@ if ($SelfTest) {
 $createdNew = $false
 $instanceMutex = [System.Threading.Mutex]::new(
     $true,
-    'Local\CodexJieunGaze',
+    'Local\CodexJieunHeadGazeV5',
     [ref]$createdNew
 )
 if (-not $createdNew) {
-    $baseBitmap.Dispose()
+    $bodyBitmap.Dispose()
+    $headBitmap.Dispose()
     $leftIrisBitmap.Dispose()
     $rightIrisBitmap.Dispose()
     $instanceMutex.Dispose()
     exit 0
 }
 
-if (-not ('JieunGazeLayeredWindow' -as [type])) {
+if (-not ('JieunHeadGazeLayeredWindow' -as [type])) {
     Add-Type -ReferencedAssemblies System.Drawing @'
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 
-public static class JieunGazeLayeredWindow
+public static class JieunHeadGazeLayeredWindow
 {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_LAYERED = 0x00080000;
@@ -223,38 +272,16 @@ public static class JieunGazeLayeredWindow
 '@
 }
 
-function Resize-PremultipliedBitmap {
-    param(
-        [Parameter(Mandatory)][System.Drawing.Bitmap]$Bitmap,
-        [Parameter(Mandatory)][int]$Width,
-        [Parameter(Mandatory)][int]$Height
-    )
-    $result = [System.Drawing.Bitmap]::new(
-        $Width,
-        $Height,
-        [System.Drawing.Imaging.PixelFormat]::Format32bppPArgb
-    )
-    $graphics = [System.Drawing.Graphics]::FromImage($result)
-    try {
-        $graphics.Clear([System.Drawing.Color]::Transparent)
-        $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
-        $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-        $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $graphics.DrawImage(
-            $Bitmap,
-            [System.Drawing.Rectangle]::new(0, 0, $Width, $Height)
-        )
-    }
-    finally {
-        $graphics.Dispose()
-    }
-    return $result
-}
-
-$scale = $DisplayHeight / [double]$baseBitmap.Height
-$displayWidth = [Math]::Max(1, [int][Math]::Round($baseBitmap.Width * $scale))
-$baseDisplay = Resize-PremultipliedBitmap -Bitmap $baseBitmap -Width $displayWidth -Height $DisplayHeight
+$scale = $DisplayHeight / [double]$bodyBitmap.Height
+$displayWidth = [Math]::Max(1, [int][Math]::Round($bodyBitmap.Width * $scale))
+$bodyDisplay = Resize-PremultipliedBitmap `
+    -Bitmap $bodyBitmap `
+    -Width $displayWidth `
+    -Height $DisplayHeight
+$headDisplay = Resize-PremultipliedBitmap `
+    -Bitmap $headBitmap `
+    -Width ([Math]::Max(1, [int][Math]::Round($headBitmap.Width * $scale))) `
+    -Height ([Math]::Max(1, [int][Math]::Round($headBitmap.Height * $scale)))
 $leftIrisDisplay = Resize-PremultipliedBitmap `
     -Bitmap $leftIrisBitmap `
     -Width ([Math]::Max(1, [int][Math]::Round($leftIrisBitmap.Width * $scale))) `
@@ -263,7 +290,8 @@ $rightIrisDisplay = Resize-PremultipliedBitmap `
     -Bitmap $rightIrisBitmap `
     -Width ([Math]::Max(1, [int][Math]::Round($rightIrisBitmap.Width * $scale))) `
     -Height ([Math]::Max(1, [int][Math]::Round($rightIrisBitmap.Height * $scale)))
-$baseBitmap.Dispose()
+$bodyBitmap.Dispose()
+$headBitmap.Dispose()
 $leftIrisBitmap.Dispose()
 $rightIrisBitmap.Dispose()
 
@@ -273,40 +301,80 @@ $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar = $false
 $form.TopMost = $true
 $form.ClientSize = [System.Drawing.Size]::new($displayWidth, $DisplayHeight)
-$form.Text = 'Jieun Gaze'
+$form.Text = 'Jieun Head Gaze'
 
-$script:gazeX = 0.0
-$script:gazeY = 0.0
+$script:eyeDirectionX = 0.0
+$script:eyeDirectionY = 0.0
+$script:headDirectionX = 0.0
+$script:headDirectionY = 0.0
 $script:paused = $false
 
 function Render-GazeFrame {
-    $frame = [System.Drawing.Bitmap]::new($baseDisplay)
+    $frame = [System.Drawing.Bitmap]::new($bodyDisplay)
+    $headFrame = [System.Drawing.Bitmap]::new($headDisplay)
+    $headGraphics = [System.Drawing.Graphics]::FromImage($headFrame)
+    try {
+        $headGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
+        $headGraphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $headGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $headGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+
+        $gazeX = $script:eyeDirectionX * [double]$config.eyes.maxGaze[0]
+        $gazeY = $script:eyeDirectionY * [double]$config.eyes.maxGaze[1]
+        $leftX = [int][Math]::Round(
+            ([double]$config.eyes.layers.left.position[0] + $gazeX) * $scale
+        )
+        $leftY = [int][Math]::Round(
+            ([double]$config.eyes.layers.left.position[1] + $gazeY) * $scale
+        )
+        $rightX = [int][Math]::Round(
+            ([double]$config.eyes.layers.right.position[0] + $gazeX) * $scale
+        )
+        $rightY = [int][Math]::Round(
+            ([double]$config.eyes.layers.right.position[1] + $gazeY) * $scale
+        )
+        $headGraphics.DrawImage($leftIrisDisplay, $leftX, $leftY)
+        $headGraphics.DrawImage($rightIrisDisplay, $rightX, $rightY)
+    }
+    finally {
+        $headGraphics.Dispose()
+    }
+
     $graphics = [System.Drawing.Graphics]::FromImage($frame)
     try {
         $graphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
         $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
         $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
         $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $leftX = [int][Math]::Round(
-            ([double]$config.eyes.left.position[0] + $script:gazeX) * $scale
+
+        $headMoveX = $script:headDirectionX * [double]$config.head.maxTranslation[0]
+        $headMoveY = $script:headDirectionY * [double]$config.head.maxTranslation[1]
+        $headX = (
+            [double]$config.head.position[0] + $headMoveX
+        ) * $scale
+        $headY = (
+            [double]$config.head.position[1] + $headMoveY
+        ) * $scale
+        $pivotX = [double]$config.head.pivot[0] * $scale
+        $pivotY = [double]$config.head.pivot[1] * $scale
+        $angle = $script:headDirectionX * [double]$config.head.maxRotationDegrees
+
+        $graphics.TranslateTransform(
+            [single]($headX + $pivotX),
+            [single]($headY + $pivotY)
         )
-        $leftY = [int][Math]::Round(
-            ([double]$config.eyes.left.position[1] + $script:gazeY) * $scale
-        )
-        $rightX = [int][Math]::Round(
-            ([double]$config.eyes.right.position[0] + $script:gazeX) * $scale
-        )
-        $rightY = [int][Math]::Round(
-            ([double]$config.eyes.right.position[1] + $script:gazeY) * $scale
-        )
-        $graphics.DrawImage($leftIrisDisplay, $leftX, $leftY)
-        $graphics.DrawImage($rightIrisDisplay, $rightX, $rightY)
+        $graphics.RotateTransform([single]$angle)
+        $graphics.TranslateTransform([single](-$pivotX), [single](-$pivotY))
+        $graphics.DrawImage($headFrame, 0, 0)
+        $graphics.ResetTransform()
     }
     finally {
         $graphics.Dispose()
+        $headFrame.Dispose()
     }
+
     try {
-        [JieunGazeLayeredWindow]::Render(
+        [JieunHeadGazeLayeredWindow]::Render(
             $form.Handle,
             $frame,
             $form.Left,
@@ -339,7 +407,7 @@ $form.Add_Shown({
             $form.Top = $workingArea.Top + $Margin
         }
     }
-    [JieunGazeLayeredWindow]::Configure($form.Handle)
+    [JieunHeadGazeLayeredWindow]::Configure($form.Handle)
     Render-GazeFrame
 })
 
@@ -350,37 +418,49 @@ $timer.Add_Tick({
     $targetY = 0.0
     if (-not $script:paused) {
         $cursor = [System.Windows.Forms.Cursor]::Position
-        $eyeCenterX = $form.Left + (
-            ([double]$config.eyes.left.center[0] + [double]$config.eyes.right.center[0]) / 2.0
+        $headCenterX = $form.Left + (
+            [double]$config.head.position[0] +
+            [double]$config.head.pivot[0]
         ) * $scale
-        $eyeCenterY = $form.Top + (
-            ([double]$config.eyes.left.center[1] + [double]$config.eyes.right.center[1]) / 2.0
+        $headCenterY = $form.Top + (
+            [double]$config.head.position[1] +
+            [double]$config.head.pivot[1] * 0.58
         ) * $scale
-        $dx = $cursor.X - $eyeCenterX
-        $dy = $cursor.Y - $eyeCenterY
+        $dx = $cursor.X - $headCenterX
+        $dy = $cursor.Y - $headCenterY
         $length = [Math]::Sqrt(($dx * $dx) + ($dy * $dy))
         if ($length -gt 1.0) {
-            $targetX = ($dx / $length) * [double]$config.maxGaze[0]
-            $targetY = ($dy / $length) * [double]$config.maxGaze[1]
+            $targetX = $dx / $length
+            $targetY = $dy / $length
         }
     }
-    $script:gazeX += ($targetX - $script:gazeX) * 0.22
-    $script:gazeY += ($targetY - $script:gazeY) * 0.22
+
+    $eyeSmoothing = [double]$config.eyes.smoothing
+    $headSmoothing = [double]$config.head.smoothing
+    $script:eyeDirectionX += ($targetX - $script:eyeDirectionX) * $eyeSmoothing
+    $script:eyeDirectionY += ($targetY - $script:eyeDirectionY) * $eyeSmoothing
+    $script:headDirectionX += ($targetX - $script:headDirectionX) * $headSmoothing
+    $script:headDirectionY += ($targetY - $script:headDirectionY) * $headSmoothing
     Render-GazeFrame
 })
 
 $menu = [System.Windows.Forms.ContextMenuStrip]::new()
-$pauseItem = $menu.Items.Add('Pause gaze')
+$pauseItem = $menu.Items.Add('Pause head + gaze')
 $exitItem = $menu.Items.Add('Exit')
 $pauseItem.Add_Click({
     $script:paused = -not $script:paused
-    $pauseItem.Text = if ($script:paused) { 'Resume gaze' } else { 'Pause gaze' }
+    $pauseItem.Text = if ($script:paused) {
+        'Resume head + gaze'
+    }
+    else {
+        'Pause head + gaze'
+    }
 })
 $exitItem.Add_Click({ $form.Close() })
 
 $tray = [System.Windows.Forms.NotifyIcon]::new()
 $tray.Icon = [System.Drawing.SystemIcons]::Application
-$tray.Text = 'Jieun Gaze'
+$tray.Text = 'Jieun Head Gaze'
 $tray.ContextMenuStrip = $menu
 $tray.Visible = $true
 
@@ -403,7 +483,8 @@ $form.Add_FormClosed({
     $tray.Visible = $false
     $tray.Dispose()
     $menu.Dispose()
-    $baseDisplay.Dispose()
+    $bodyDisplay.Dispose()
+    $headDisplay.Dispose()
     $leftIrisDisplay.Dispose()
     $rightIrisDisplay.Dispose()
     $instanceMutex.ReleaseMutex()
