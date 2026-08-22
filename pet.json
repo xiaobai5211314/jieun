@@ -1,6 +1,6 @@
 {
   "id": "jieun",
   "displayName": "Jieun",
-  "description": "A tall, long-legged IU-inspired Codex desk pet with round glasses, black-and-white streetwear, and nine expressive action states.",
+  "description": "A crisp high-resolution, tall and long-legged IU-inspired desk pet with nine expressive action states and an optional eye-gaze overlay.",
   "spritesheetPath": "spritesheet.png"
 }
