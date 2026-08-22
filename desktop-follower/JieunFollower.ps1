@@ -60,6 +60,18 @@ if ($SelfTest) {
     exit 0
 }
 
+$createdNew = $false
+$instanceMutex = [System.Threading.Mutex]::new(
+    $true,
+    'Local\CodexJieunFollower',
+    [ref]$createdNew
+)
+if (-not $createdNew) {
+    $instanceMutex.Dispose()
+    $atlas.Dispose()
+    exit 0
+}
+
 if (-not ('JieunFollowerNative' -as [type])) {
     Add-Type @'
 using System;
@@ -289,6 +301,8 @@ $form.Add_FormClosed({
     $tray.Dispose()
     $menu.Dispose()
     $atlas.Dispose()
+    $instanceMutex.ReleaseMutex()
+    $instanceMutex.Dispose()
 })
 
 $timer.Start()

@@ -11,6 +11,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\JieunFollower.ps1
 ```
 
 The overlay is click-through and stays near the pointer. Use its system-tray icon to Pause/Resume or Exit.
+Starting it again while it is already running exits quietly instead of creating a duplicate pet.
 
 ## Behavior
 
